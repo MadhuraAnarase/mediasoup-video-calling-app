@@ -1,10 +1,12 @@
-const socket = io('http://localhost:3100'); 
+const socket = io('http://localhost:3100');
 const localVideo = document.getElementById('local-video');
 const remoteVideosContainer = document.getElementById('remote-videos');
 
 let localStream;
 let device;
 let sendTransport; // Store send transport for cleanup
+let isMuted = false; // Track mute state
+let isVideoStopped = false; // Track video state
 
 // Get user media
 async function getUserMedia() {
@@ -60,7 +62,7 @@ socket.on('new-peer', (peerId) => {
     remoteVideosContainer.appendChild(remoteVideo);
 });
 
-// Handle receiving remote tracks (adjust based on your signaling logic)
+// Handle receiving remote tracks
 socket.on('track-received', ({ peerId, track }) => {
     const remoteVideo = document.getElementById(`remote-${peerId}`);
     if (remoteVideo) {
@@ -71,32 +73,43 @@ socket.on('track-received', ({ peerId, track }) => {
 
 // Function to end the call
 function endCall() {
-    // Stop all local tracks
     localStream.getTracks().forEach(track => track.stop());
-
-    // Notify the server to end the call
-    socket.emit('call-ended', socket.id); // Emit call-ended event with peer ID
-
-    // Remove remote video elements
+    socket.emit('call-ended', socket.id);
     while (remoteVideosContainer.firstChild) {
         remoteVideosContainer.removeChild(remoteVideosContainer.firstChild);
     }
-
     console.log('Call ended.');
 }
 
 // When a call ends
 socket.on('call-ended', (peerId) => {
     console.log(`Call ended by peer: ${peerId}`);
-    
-    // Clean up remote video element
     const remoteVideo = document.getElementById(`remote-${peerId}`);
     if (remoteVideo) {
-        remoteVideo.srcObject.getTracks().forEach(track => track.stop()); // Stop the remote stream
-        remoteVideo.srcObject = null; // Clear the video element
-        remoteVideosContainer.removeChild(remoteVideo); // Remove the remote video element
+        remoteVideo.srcObject.getTracks().forEach(track => track.stop());
+        remoteVideo.srcObject = null;
+        remoteVideosContainer.removeChild(remoteVideo);
     }
 });
+
+// Mute/Unmute audio
+function toggleMute() {
+    isMuted = !isMuted;
+    localStream.getAudioTracks().forEach(track => {
+        track.enabled = !isMuted;
+    });
+    document.getElementById('mute-unmute').innerText = isMuted ? 'Unmute' : 'Mute';
+}
+
+// Start/Stop Video
+function toggleVideo() {
+    isVideoStopped = !isVideoStopped;
+    localStream.getVideoTracks().forEach(track => {
+        track.enabled = !isVideoStopped;
+    });
+    document.getElementById('stop-video').disabled = isVideoStopped;
+    document.getElementById('start-video').disabled = !isVideoStopped;
+}
 
 // Event listeners for buttons
 document.getElementById('start-call').addEventListener('click', () => {
@@ -104,5 +117,26 @@ document.getElementById('start-call').addEventListener('click', () => {
 });
 
 document.getElementById('end-call').addEventListener('click', () => {
-    endCall(); // Call the endCall function when the button is clicked
+    endCall();
+});
+
+document.getElementById('mute-unmute').addEventListener('click', () => {
+    toggleMute();
+});
+
+document.getElementById('start-video').addEventListener('click', () => {
+    toggleVideo();
+});
+
+document.getElementById('stop-video').addEventListener('click', () => {
+    toggleVideo();
+});
+
+// Start/Stop Audio buttons (optional functionality, you can connect them to server)
+document.getElementById('start-audio').addEventListener('click', () => {
+    localStream.getAudioTracks().forEach(track => track.enabled = true);
+});
+
+document.getElementById('stop-audio').addEventListener('click', () => {
+    localStream.getAudioTracks().forEach(track => track.enabled = false);
 });
