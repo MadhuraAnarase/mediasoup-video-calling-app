@@ -1,12 +1,12 @@
-const socket = io('http://localhost:3100');
+// client.js
+const socket = io('https://b5fb-223-233-86-161.ngrok-free.app/');
 const localVideo = document.getElementById('local-video');
 const remoteVideosContainer = document.getElementById('remote-videos');
 
 let localStream;
 let device;
-let sendTransport; // Store send transport for cleanup
-let isMuted = false; // Track mute state
-let isVideoStopped = false; // Track video state
+let sendTransport; 
+let remoteClients = {}; // Store remote client video elements
 
 // Get user media
 async function getUserMedia() {
@@ -46,8 +46,8 @@ socket.on('transport-created', async (data) => {
     const audioTrack = localStream.getAudioTracks()[0];
 
     try {
-        await sendTransport.produce({ track: videoTrack });
-        await sendTransport.produce({ track: audioTrack });
+        await sendTransport.produce({ track: videoTrack, appData: { kind: 'video' } });
+        await sendTransport.produce({ track: audioTrack, appData: { kind: 'audio' } });
         console.log('Audio and video tracks sent.');
     } catch (error) {
         console.error('Error producing track:', error);
@@ -59,15 +59,56 @@ socket.on('new-peer', (peerId) => {
     const remoteVideo = document.createElement('video');
     remoteVideo.id = `remote-${peerId}`;
     remoteVideo.autoplay = true;
+    remoteVideo.style.width = '200px'; // Example styling
+    remoteVideo.style.height = '150px'; // Example styling
     remoteVideosContainer.appendChild(remoteVideo);
+    remoteClients[peerId] = remoteVideo; // Store the remote video element
 });
 
 // Handle receiving remote tracks
-socket.on('track-received', ({ peerId, track }) => {
+socket.on('new-producer', async ({ producerId, socketId }) => {
+    const remoteVideo = remoteClients[socketId];
+
+    // Create a new consumer for the producer
+    const consumerTransport = device.createRecvTransport(/* Transport parameters here */);
+
+    consumerTransport.on('connect', async ({ dtlsParameters }, callback) => {
+        socket.emit('connect-transport', { transportId: consumerTransport.id, dtlsParameters });
+        callback();
+    });
+
+    // Receive the track
+    const { rtpParameters } = await socket.emit('consume', { producerId, transportId: consumerTransport.id });
+    const consumer = await consumerTransport.consume({ id: producerId, rtpParameters });
+
+    // Add the track to the remote video element
+    if (remoteVideo) {
+        const remoteStream = new MediaStream([consumer.track]);
+        remoteVideo.srcObject = remoteStream;
+    }
+});
+
+// When a producer closes
+socket.on('producer-closed', ({ producerId }) => {
+    for (const [clientId, remoteVideo] of Object.entries(remoteClients)) {
+        if (producerId === clientId) {
+            remoteVideo.srcObject.getTracks().forEach(track => track.stop());
+            remoteVideo.srcObject = null;
+            remoteVideosContainer.removeChild(remoteVideo);
+            delete remoteClients[clientId]; // Remove from the client list
+            break;
+        }
+    }
+});
+
+// Handle peer disconnection
+socket.on('peer-disconnected', (peerId) => {
     const remoteVideo = document.getElementById(`remote-${peerId}`);
     if (remoteVideo) {
-        const remoteStream = new MediaStream([track]);
-        remoteVideo.srcObject = remoteStream;
+        remoteVideo.srcObject.getTracks().forEach(track => track.stop());
+        remoteVideo.srcObject = null;
+        remoteVideosContainer.removeChild(remoteVideo);
+        delete remoteClients[peerId]; // Remove from remote clients
     }
 });
 
@@ -89,54 +130,9 @@ socket.on('call-ended', (peerId) => {
         remoteVideo.srcObject.getTracks().forEach(track => track.stop());
         remoteVideo.srcObject = null;
         remoteVideosContainer.removeChild(remoteVideo);
+        delete remoteClients[peerId]; // Remove from remote clients
     }
 });
 
-// Mute/Unmute audio
-function toggleMute() {
-    isMuted = !isMuted;
-    localStream.getAudioTracks().forEach(track => {
-        track.enabled = !isMuted;
-    });
-    document.getElementById('mute-unmute').innerText = isMuted ? 'Unmute' : 'Mute';
-}
-
-// Start/Stop Video
-function toggleVideo() {
-    isVideoStopped = !isVideoStopped;
-    localStream.getVideoTracks().forEach(track => {
-        track.enabled = !isVideoStopped;
-    });
-    document.getElementById('stop-video').disabled = isVideoStopped;
-    document.getElementById('start-video').disabled = !isVideoStopped;
-}
-
-// Event listeners for buttons
-document.getElementById('start-call').addEventListener('click', () => {
-    getUserMedia();
-});
-
-document.getElementById('end-call').addEventListener('click', () => {
-    endCall();
-});
-
-document.getElementById('mute-unmute').addEventListener('click', () => {
-    toggleMute();
-});
-
-document.getElementById('start-video').addEventListener('click', () => {
-    toggleVideo();
-});
-
-document.getElementById('stop-video').addEventListener('click', () => {
-    toggleVideo();
-});
-
-// Start/Stop Audio buttons (optional functionality, you can connect them to server)
-document.getElementById('start-audio').addEventListener('click', () => {
-    localStream.getAudioTracks().forEach(track => track.enabled = true);
-});
-
-document.getElementById('stop-audio').addEventListener('click', () => {
-    localStream.getAudioTracks().forEach(track => track.enabled = false);
-});
+// Start the app
+getUserMedia();

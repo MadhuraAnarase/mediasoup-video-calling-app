@@ -1,8 +1,9 @@
+// server.ts
 import express, { Request, Response } from 'express';
 import http from 'http';
 import path from 'path';
 import dotenv from 'dotenv';
-import mediasoupRouter from './api/mediasoup/router';  // Adjusted import
+import mediasoupRouter from './api/mediasoup/router'; // Adjusted import
 import { initMediasoup } from './config/mediasoup';
 import { Server as SocketIOServer } from 'socket.io';
 import { connectTransport, createTransport } from './services/mediasoup.service';
@@ -29,7 +30,10 @@ app.get('/', (_, res: Response) => {
 });
 
 // Use the router for API routes
-app.use('/api', mediasoupRouter);  // Using the router properly
+app.use('/api', mediasoupRouter);
+
+// Store all connected clients and their transports
+const clients: { [key: string]: any } = {}; // Store client transports and media
 
 async function startServer() {
     try {
@@ -48,9 +52,17 @@ async function startServer() {
 io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
 
+    // Notify all clients about the new connection
+    io.emit('new-peer', socket.id); // Notify all clients about the new peer
+
+    // Create a new transport for this client
     socket.on('create-transport', async () => {
         try {
             const transport = await createTransport();
+            clients[socket.id] = {
+                transport,
+                producers: []
+            };
             socket.emit('transport-created', {
                 id: transport.id,
                 iceParameters: transport.iceParameters,
@@ -71,8 +83,42 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('produce', async ({ kind, rtpParameters }) => {
+        try {
+            const producer = await clients[socket.id].transport.produce({ kind, rtpParameters });
+            clients[socket.id].producers.push(producer);
+
+            // Notify other clients about the new producer
+            socket.broadcast.emit('new-producer', {
+                producerId: producer.id,
+                socketId: socket.id,
+                kind,
+            });
+
+            // Handle receiving track from producers
+            producer.on('trackended', () => {
+                console.log('Track ended:', producer.id);
+                socket.broadcast.emit('producer-closed', { producerId: producer.id });
+            });
+
+        } catch (error) {
+            console.error('Error producing track:', error);
+            socket.emit('error', `Failed to produce track: ${error}`);
+        }
+    });
+
+    // When a client disconnects, clean up their resources
     socket.on('disconnect', () => {
         console.log('Client disconnected:', socket.id);
+        const client = clients[socket.id];
+        if (client) {
+            client.producers.forEach((producer: any) => producer.close());
+            client.transport.close();
+            delete clients[socket.id];
+
+            // Notify all clients about the disconnection
+            socket.broadcast.emit('peer-disconnected', socket.id);
+        }
     });
 });
 
