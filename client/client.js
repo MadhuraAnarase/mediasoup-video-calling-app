@@ -1,9 +1,8 @@
-const socket = io('https://4b92-2401-4900-52f0-c5f6-7108-c4c6-eed7-f145.ngrok-free.app/');
+const socket = io('https://b7b8-2401-4900-5301-7cda-359b-8ae0-151d-f801.ngrok-free.app/');
 const localVideo = document.getElementById('local-video');
 const remoteVideosContainer = document.getElementById('remote-videos');
 
 let localStream;
-let device;
 let sendTransport; 
 let remoteClients = {}; // Store remote client video elements
 

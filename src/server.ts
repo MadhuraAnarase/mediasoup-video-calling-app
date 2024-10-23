@@ -1,4 +1,3 @@
-// server.ts
 import express, { Request, Response } from 'express';
 import http from 'http';
 import path from 'path';
@@ -52,7 +51,6 @@ async function startServer() {
 io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
 
-    // Notify all clients about the new connection
     io.emit('new-peer', socket.id); // Notify all clients about the new peer
 
     // Create a new transport for this client
@@ -69,6 +67,7 @@ io.on('connection', (socket) => {
                 iceCandidates: transport.iceCandidates,
                 dtlsParameters: transport.dtlsParameters,
             });
+            console.log(`Transport created for socket: ${socket.id}, Transport ID: ${transport.id}`);
         } catch (error) {
             socket.emit('error', `Failed to create transport: ${error}`);
         }
