@@ -28,3 +28,12 @@ interface Room {
     }
   }
   
+  export function removePeerFromRoom(roomId: string, peerId: string) {
+    const room = rooms.get(roomId);
+    if (room) {
+        room.peers = room.peers.filter((peer) => peer !== peerId);
+        if (room.peers.length === 0) {
+            rooms.delete(roomId); // Delete room if no peers left
+        }
+    }
+}

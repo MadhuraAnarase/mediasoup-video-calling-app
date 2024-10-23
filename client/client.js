@@ -1,5 +1,4 @@
-// client.js
-const socket = io('https://b5fb-223-233-86-161.ngrok-free.app/');
+const socket = io('https://4b92-2401-4900-52f0-c5f6-7108-c4c6-eed7-f145.ngrok-free.app/');
 const localVideo = document.getElementById('local-video');
 const remoteVideosContainer = document.getElementById('remote-videos');
 
